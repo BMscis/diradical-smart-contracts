@@ -2,13 +2,18 @@ import { loadStdlib } from '@reach-sh/stdlib';
 import * as backend from './build/index.main.mjs';
 
 const stdlib = loadStdlib('ETH');
+const gasLimit = 5000000;
 
 const fmtNum = n => stdlib.bigNumberToNumber(n);
-const bal = stdlib.parseCurrency(100);
+const bal = stdlib.parseCurrency(1000000000);
 
 const accDeployer = await stdlib.newTestAccount(bal);
 const accArtist = await stdlib.newTestAccount(bal);
 const accListener = await stdlib.newTestAccount(bal);
+
+accDeployer.setGasLimit(gasLimit);
+accArtist.setGasLimit(gasLimit);
+accListener.setGasLimit(gasLimit);
 
 const royaltyCtc = accDeployer.contract(backend);
 const IPFS_HASH = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'; // 46 chars
@@ -31,14 +36,21 @@ royaltyCtc.e.songAdded.monitor(({ when, what }) => {
 
 const logViews = async (songId, acc) => {
   const totalPlays = await royaltyCtc.v.totalPlays();
-  const totalBalance = await royaltyCtc.v.totalBal();
+  const totalBalance = await royaltyCtc.v.totalBalance();
+  const reserveBalance = await royaltyCtc.v.reserveBalance();
   const views = {
     totalBalance: fmtNum(totalBalance[1]),
     totalPlays: fmtNum(totalPlays[1]),
+    reserveBalance: fmtNum(reserveBalance[1]),
   };
+  if (songId) {
+    const song = await royaltyCtc.v.getSong(songId)
+    const songRoyalties = await royaltyCtc.v.songRoyalties(songId);
+    views.unpaidRoyalties = fmtNum(songRoyalties[1]);
+  }
   if (songId && acc) {
-    const payout = await royaltyCtc.v.checkPayout(songId, acc.getAddress());
-    const ownership = await royaltyCtc.v.checkOwnership(
+    const payout = await royaltyCtc.v.userPayout(songId, acc.getAddress());
+    const ownership = await royaltyCtc.v.userOwnership(
       songId,
       acc.getAddress()
     );
@@ -68,14 +80,14 @@ const buyOwnership = async (acc, songId, amt = 1) => {
 const makeAvailable = async (acc, songId, amt = 10) => {
   const ctc = acc.contract(backend, royaltyCtcInfo);
   await ctc.a.openToPublic(songId, amt);
-}
-const endPayPeriod = async (acc, songId) => {
-  const ctc = acc.contract(backend, royaltyCtcInfo);
-  await ctc.a.endPayPeriod(songId);
 };
 const receivePayout = async (acc, songId) => {
   const ctc = acc.contract(backend, royaltyCtcInfo);
   await ctc.a.getRoyalties(songId);
+};
+const endPayPeriod = async (acc, songId) => {
+  const ctc = acc.contract(backend, royaltyCtcInfo);
+  await ctc.a.endPayPeriod(songId);
 };
 
 await buyMembership(accArtist);
@@ -86,19 +98,17 @@ const songId3 = await addSong(accArtist);
 const songId4 = await addSong(accArtist);
 await logViews(songId, accArtist);
 await listen(songId);
-await listen(songId);
 await listen(songId2);
 await makeAvailable(accArtist, songId);
-// await listen(songId2);
 await buyOwnership(accListener, songId);
 await logViews(songId, accArtist);
 await logViews(songId2, accArtist);
-await listen(songId);
 await logViews(songId, accListener);
 // await receivePayout(accArtist, songId)
 await logViews(songId, accArtist);
-await endPayPeriod(accArtist, songId)
 await logViews(songId, accArtist);
-await receivePayout(accListener, songId)
+await endPayPeriod(accArtist, songId);
 await logViews(songId, accListener);
-
+await receivePayout(accListener, songId);
+await logViews(songId, accListener);
+await logViews(songId, accArtist);
