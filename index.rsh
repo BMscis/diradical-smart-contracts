@@ -32,6 +32,7 @@ export const main = Reach.App(() => {
     openToPublic: Fun([UInt, UInt], Null),
     getRoyalties: Fun([SongId], UInt),
     endPayPeriod: Fun([SongId], UInt),
+    addWallet: Fun([Address], Null),
   });
   const V = View({
     getSong: Fun([SongId], Song),
@@ -43,9 +44,10 @@ export const main = Reach.App(() => {
     reserveBalance: Fun([], UInt),
   });
   const E = Events({
+    songListenedTo: [SongId],
     songAdded: [SongId],
     royaltiesAccrued: [SongId, UInt],
-    royaltiesPaid: [SongId, Address, UInt]
+    royaltiesPaid: [SongId, Address, UInt],
   });
 
   init();
@@ -62,6 +64,7 @@ export const main = Reach.App(() => {
     percentAvailable: 0,
   });
 
+  const acceptedAccounts = new Set();
   const songs = new Map(SongId, Song);
   const payouts = new Map(SongId, UInt);
   const ownership = new Map(Digest, UInt);
@@ -108,7 +111,20 @@ export const main = Reach.App(() => {
     .invariant(balance() === trackedBal + reserveAmt)
     .invariant(reserveAmt === payouts.sum())
     .while(true)
+    .api_(A.addWallet, user => {
+      check(this === D, 'is deployer');
+      check(!acceptedAccounts.member(user), 'is not accepted');
+      return [
+        [0],
+        notify => {
+          acceptedAccounts.insert(user);
+          notify(null);
+          return [totalPlays, totalMembers, trackedBal, reserveAmt];
+        },
+      ];
+    })
     .api_(A.buyMembership, () => {
+      check(this !== D, 'not deployer');
       check(!members.member(this), 'is member');
       return [
         [MEMBERSHIP_COST],
@@ -125,6 +141,7 @@ export const main = Reach.App(() => {
       ];
     })
     .api_(A.addSong, (art, audio) => {
+      check(this !== D, 'not deployer');
       chkMembership(this);
       return [
         [0],
@@ -149,7 +166,8 @@ export const main = Reach.App(() => {
       ];
     })
     .api_(A.incrementPlayCount, songId => {
-      chkMembership(this);
+      check(this !== D, 'not deployer');
+      check(acceptedAccounts.member(this), 'is allowed');
       check(isSome(songs[songId]), 'song listed');
       const song = getSongFromId(songId);
       // const royaltyAmt = 1;
@@ -166,12 +184,14 @@ export const main = Reach.App(() => {
             totalPlays: song.totalPlays + 1,
           });
           songs[songId] = updatedSong;
+          E.songListenedTo(songId);
           notify(song.totalPlays + 1);
           return [totalPlays + 1, totalMembers, trackedBal, reserveAmt];
         },
       ];
     })
     .api_(A.endPayPeriod, songId => {
+      check(this !== D, 'not deployer');
       chkMembership(this);
       check(isSome(songs[songId]), 'song exists');
       const song = getSongFromId(songId);
@@ -194,6 +214,7 @@ export const main = Reach.App(() => {
       ];
     })
     .api_(A.getRoyalties, songId => {
+      check(this !== D, 'not deployer');
       chkMembership(this);
       check(isSome(songs[songId]), 'song exists');
       const ownerHash = createOwnershipHash(songId, this);
@@ -206,13 +227,14 @@ export const main = Reach.App(() => {
         notify => {
           transfer(amt).to(this);
           payouts[songId] = fromSome(payouts[songId], 0) - amt;
-          E.royaltiesPaid(songId, this, amt)
+          E.royaltiesPaid(songId, this, amt);
           notify(amt);
           return [totalPlays, totalMembers, trackedBal, reserveAmt - amt];
         },
       ];
     })
     .api_(A.openToPublic, (songId, percentToOpen) => {
+      check(this !== D, 'not deployer');
       chkMembership(this);
       check(isSome(songs[songId]), 'song exist');
       const currentSong = getSongFromId(songId);
@@ -231,6 +253,8 @@ export const main = Reach.App(() => {
       ];
     })
     .api_(A.purchaseOwnership, (songId, desiredPercent) => {
+      check(this !== D, 'not deployer');
+
       chkMembership(this);
       check(isSome(songs[songId]), 'song exist');
       const currentSong = getSongFromId(songId);

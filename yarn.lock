@@ -370,12 +370,28 @@
   dependencies:
     "@randlabs/communication-bridge" "1.0.1"
 
-"@reach-sh/stdlib@^0.1.12-rc.8":
-  version "0.1.12-rc.8"
-  resolved "https://registry.yarnpkg.com/@reach-sh/stdlib/-/stdlib-0.1.12-rc.8.tgz#7ba6508b84a36df915e6cde19a5dbf6a2249a07d"
-  integrity sha512-8v3Na7aYgE8vGrYKifal0YQCNjWZslp9AavKYxtPMXqppcJ7BpHZQ/TMaMRPduVkQwNHrXry84PRO6VKhgk99A==
+"@reach-sh/js-conflux-sdk@^1.6.0":
+  version "1.6.0"
+  resolved "https://registry.yarnpkg.com/@reach-sh/js-conflux-sdk/-/js-conflux-sdk-1.6.0.tgz#4e6a0031b7f54205b8d10b487d2e6a37e8fdee6c"
+  integrity sha512-TWgjqcraPUcad+RdCZF5brfYWhoxxCrP7C44OostKTfKkXDZeDb4+WHfMjYEDE408tcaA7B2RyVKwapO8PICsQ==
+  dependencies:
+    "@babel/runtime" "^7.8.4"
+    "@conflux-dev/conflux-address-js" "^1.0.0"
+    big.js "^5.2.2"
+    keccak "^2.0.0"
+    lodash "^4.17.19"
+    scrypt-js "^3.0.1"
+    secp256k1 "^3.7.1"
+    superagent "^5.1.0"
+    websocket "^1.0.31"
+
+"@reach-sh/stdlib@^0.1.12-rc.9":
+  version "0.1.12-rc.9"
+  resolved "https://registry.yarnpkg.com/@reach-sh/stdlib/-/stdlib-0.1.12-rc.9.tgz#b6f2a14b44b89fb3e9bf85a61a0e527be6e5aa40"
+  integrity sha512-jzYNRj4zvofLBAFPYRN70mBgWGScb9F1nDrVOInz31IOniOhItJcrgqdzIl4v/kln0FmaABU3L7g5TNkrYlv0Q==
   dependencies:
     "@randlabs/myalgo-connect" "^1.2.0"
+    "@reach-sh/js-conflux-sdk" "^1.6.0"
     "@walletconnect/client" "^1.7.8"
     algorand-walletconnect-qrcode-modal "^1.7.8-beta.1"
     algosdk "^1.20.0"
@@ -383,7 +399,6 @@
     ethers "^5.5.4"
     express "^4.17.3"
     hi-base32 "^0.5.1"
-    js-conflux-sdk "git+https://github.com/reach-sh/js-conflux-sdk#v1_6_0_blockNumber"
     jsbi "^3.1.6"
     node-fetch "^2.6.1"
     tslib "^2.3.1"
@@ -562,9 +577,9 @@ algorand-walletconnect-qrcode-modal@^1.7.8-beta.1:
     qrcode "1.4.4"
 
 algosdk@^1.20.0:
-  version "1.23.1"
-  resolved "https://registry.yarnpkg.com/algosdk/-/algosdk-1.23.1.tgz#c8fbf1f7af42fc722c9b7e9fc9c4a1015f1ede82"
-  integrity sha512-7fKyTd2V6rsac3ADm6N5jJV80cCw+EIBzXVLzfPvKqranjOZtq7xIqwpEkZgBkZ/TJ5wxwTDJVPyswXChv+QPg==
+  version "1.23.2"
+  resolved "https://registry.yarnpkg.com/algosdk/-/algosdk-1.23.2.tgz#1fda2b537d832687da64bf708f10a69086f02b43"
+  integrity sha512-ZDq71Kq+e3bvHxnTi/hWqom2/YHeTrbkxenOOCvPidRQuwkaOQAs92c4fqImdn7+Y+MfLhdtQspBLFR1hQTE4A==
   dependencies:
     algo-msgpack-with-bigint "^2.1.1"
     buffer "^6.0.2"
@@ -840,9 +855,9 @@ cookiejar@^2.1.2:
   integrity sha512-JxbCBUdrfr6AQjOXrxoTvAMJO4HBTUIlBzslcJPAz+/KT8yk53fXun51u+RenNYvad/+Vc2DIz5o9UxlCDymFQ==
 
 copy-to-clipboard@^3.3.1:
-  version "3.3.2"
-  resolved "https://registry.yarnpkg.com/copy-to-clipboard/-/copy-to-clipboard-3.3.2.tgz#5b263ec2366224b100181dded7ce0579b340c107"
-  integrity sha512-Vme1Z6RUDzrb6xAI7EZlVZ5uvOk2F//GaxKUxajDqm9LhOVM1inxNAD2vy+UZDYsd0uyA9s7b3/FVZPSxqrCfg==
+  version "3.3.3"
+  resolved "https://registry.yarnpkg.com/copy-to-clipboard/-/copy-to-clipboard-3.3.3.tgz#55ac43a1db8ae639a4bd99511c148cdd1b83a1b0"
+  integrity sha512-2KV8NhB5JqC3ky0r9PMCAZKbUHSwtEo4CwCs0KXgruG43gX5PMqDEBbVU4OUzw2MuAWUfsuFmWvEKG5QRfSnJA==
   dependencies:
     toggle-selection "^1.0.6"
 
@@ -875,6 +890,11 @@ cross-fetch@^3.1.5:
   integrity sha512-lvb1SBsI0Z7GDwmuid+mU3kWVBwTVUbe7S0H52yaaAdQOXq2YktTCZdlAcNKFzE6QtRz0snpw9bNiPeOIkkQvw==
   dependencies:
     node-fetch "2.6.7"
+
+crypto@^1.0.1:
+  version "1.0.1"
+  resolved "https://registry.yarnpkg.com/crypto/-/crypto-1.0.1.tgz#2af1b7cad8175d24c8a1b0778255794a21803037"
+  integrity sha512-VxBKmeNcqQdiUQUW2Tzq0t377b54N2bMtXO/qiLa+6eRRmmC4qT3D4OnTGoT/U6O9aklQ/jTwbOtRMTTY8G0Ig==
 
 d@1, d@^1.0.1:
   version "1.0.1"
@@ -1268,20 +1288,6 @@ isarray@^2.0.1:
   resolved "https://registry.yarnpkg.com/isarray/-/isarray-2.0.5.tgz#8af1e4c1221244cc62459faf38940d4e644a5723"
   integrity sha512-xHjhDr3cNBK0BzdUJSPXZntQUx/mwMS5Rw4A7lPJ90XGAO6ISP/ePDNuo0vhqOZU+UD5JoodwCAAoZQd3FeAKw==
 
-"js-conflux-sdk@git+https://github.com/reach-sh/js-conflux-sdk.git#v1_6_0_blockNumber":
-  version "1.6.0"
-  resolved "git+https://github.com/reach-sh/js-conflux-sdk.git#6df5f0538c2077a7e29f0be08205b937499a1040"
-  dependencies:
-    "@babel/runtime" "^7.8.4"
-    "@conflux-dev/conflux-address-js" "^1.0.0"
-    big.js "^5.2.2"
-    keccak "^2.0.0"
-    lodash "^4.17.19"
-    scrypt-js "^3.0.1"
-    secp256k1 "^3.7.1"
-    superagent "^5.1.0"
-    websocket "^1.0.31"
-
 js-sha256@^0.9.0:
   version "0.9.0"
   resolved "https://registry.yarnpkg.com/js-sha256/-/js-sha256-0.9.0.tgz#0b89ac166583e91ef9123644bd3c5334ce9d0966"
@@ -1572,9 +1578,9 @@ readable-stream@^3.6.0:
     util-deprecate "^1.0.1"
 
 regenerator-runtime@^0.13.10:
-  version "0.13.10"
-  resolved "https://registry.yarnpkg.com/regenerator-runtime/-/regenerator-runtime-0.13.10.tgz#ed07b19616bcbec5da6274ebc75ae95634bfc2ee"
-  integrity sha512-KepLsg4dU12hryUO7bp/axHAKvwGOCV0sGloQtpagJ12ai+ojVDqkeGSiRX1zlq+kjIMZ1t7gpze+26QqtdGqw==
+  version "0.13.11"
+  resolved "https://registry.yarnpkg.com/regenerator-runtime/-/regenerator-runtime-0.13.11.tgz#f6dca3e7ceec20590d07ada785636a90cdca17f9"
+  integrity sha512-kY1AZVr2Ra+t+piVaJ4gxaFaReZVH40AKNo7UCX6W+dEwBo/2oZJzqfuN1qLq1oL45o56cPaTXELwrTh8Fpggg==
 
 require-directory@^2.1.1:
   version "2.1.1"

@@ -44,7 +44,7 @@ const logViews = async (songId, acc) => {
     reserveBalance: fmtNum(reserveBalance[1]),
   };
   if (songId) {
-    const song = await royaltyCtc.v.getSong(songId)
+    const song = await royaltyCtc.v.getSong(songId);
     const songRoyalties = await royaltyCtc.v.songRoyalties(songId);
     views.unpaidRoyalties = fmtNum(songRoyalties[1]);
   }
@@ -58,6 +58,10 @@ const logViews = async (songId, acc) => {
     views.ownership = !ownership[1] ? 0 : fmtNum(ownership[1]);
   }
   console.log(views);
+};
+const addAccount = async wallet => {
+  const ctc = accDeployer.contract(backend, royaltyCtcInfo);
+  await ctc.a.addWallet(wallet);
 };
 const buyMembership = async acc => {
   const ctc = acc.contract(backend, royaltyCtcInfo);
@@ -90,6 +94,8 @@ const endPayPeriod = async (acc, songId) => {
   await ctc.a.endPayPeriod(songId);
 };
 
+await addAccount(accArtist);
+await addAccount(accListener);
 await buyMembership(accArtist);
 await buyMembership(accListener);
 const songId = await addSong(accArtist);
