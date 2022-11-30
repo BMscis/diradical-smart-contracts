@@ -1,141 +1,172 @@
 'reach 0.1';
 'use strict';
 
-// atomic units
-const MEMBERSHIP_COST = 1000;
+const ONE_MONTH = 30 * 24 * 60 * 60; // in seconds
+const FIVE_SECS = 5; // in seconds
 
-// custom types
+// custom types - for clarity
 const IpfsCid = Bytes(46);
 const SongId = UInt;
+const VotePeriod = UInt;
 
 const Song = Struct([
   ['id', SongId],
   ['creator', Address],
   ['art', IpfsCid],
   ['audio', IpfsCid],
-  ['totalPlays', UInt],
-  ['sessionPlays', UInt],
-  ['paidPlays', UInt],
-  ['percentAvailable', UInt], // i.e 12 = 12% ownership
+  ['votes', UInt],
 ]);
 
 export const main = Reach.App(() => {
   setOptions({ connectors: [ETH] });
   const D = Participant('Deployer', {
+    membershipCost: UInt,
     ready: Fun([], Null),
   });
   const A = API({
-    buyMembership: Fun([], Null),
+    buyMembership: Fun([], UInt),
     addSong: Fun([IpfsCid, IpfsCid], SongId),
-    incrementPlayCount: Fun([SongId], UInt),
-    purchaseOwnership: Fun([SongId, UInt], Null),
-    openToPublic: Fun([UInt, UInt], Null),
-    getRoyalties: Fun([SongId], UInt),
-    endPayPeriod: Fun([SongId], UInt),
-    addWallet: Fun([Address], Null),
+    vote: Fun([SongId], Null),
+    endVotingPeriod: Fun([], Null),
+    receivePayout: Fun([SongId, VotePeriod], UInt),
   });
   const V = View({
     getSong: Fun([SongId], Song),
-    songRoyalties: Fun([SongId], UInt),
-    userPayout: Fun([SongId, Address], UInt),
-    userOwnership: Fun([SongId, Address], UInt),
-    totalPlays: Fun([], UInt),
-    totalBalance: Fun([], UInt),
-    reserveBalance: Fun([], UInt),
+    getContractBalance: Fun([], UInt),
+    getSongPayout: Fun([SongId, VotePeriod], UInt),
+    getMembershipExp: Fun([Address], UInt),
+    getCurrentVotingPeriod: Fun([], VotePeriod),
+    getMembershipCost: Fun([], UInt),
+    getPeriodEndTime: Fun([], UInt),
+    hasVoted: Fun([SongId, Address], Bool),
   });
   const E = Events({
-    songListenedTo: [SongId],
     songAdded: [SongId],
-    royaltiesAccrued: [SongId, UInt],
-    royaltiesPaid: [SongId, Address, UInt],
   });
 
   init();
-  D.publish();
+  D.only(() => {
+    const membershipCost = declassify(interact.membershipCost);
+  });
+  D.publish(membershipCost);
 
-  const defaultSong = Song.fromObject({
+  const defSong = {
     id: 0,
     creator: D,
     art: IpfsCid.pad(''),
     audio: IpfsCid.pad(''),
-    sessionPlays: 0,
-    totalPlays: 0,
-    paidPlays: 0,
-    percentAvailable: 0,
-  });
+    votes: 0,
+  };
+  const defSongStruct = Song.fromObject(defSong);
 
-  const acceptedAccounts = new Set();
+  const getNow = () => thisConsensusSecs();
+
+  const memberships = new Map(UInt);
   const songs = new Map(SongId, Song);
-  const payouts = new Map(SongId, UInt);
-  const ownership = new Map(Digest, UInt);
-  const members = new Set();
-  // will be used to track last listen time - prevent spam listens
-  // const listens = new Map(UInt);
+
+  const votes = new Map(Tuple(VotePeriod, SongId), UInt);
+  const userVotes = new Map(Tuple(VotePeriod, SongId, Address), Bool); // cannot vote twice for same song in same voting period
+  const totalVotesInPeriod = new Map(VotePeriod, UInt);
+
+  const payouts = new Map(VotePeriod, UInt);
+  const payoutsReceived = new Map(Tuple(VotePeriod, SongId, Address), Bool);
 
   commit();
   D.publish();
   D.interact.ready();
 
-  const [totalPlays, totalMembers, trackedBal, reserveAmt] = parallelReduce([
-    0, 0, 0, 0,
-  ])
+  const deployTime = getNow();
+
+  const [
+    totalMembers,
+    profitAmt,
+    payoutAmt,
+    votingPeriod,
+    endPeriodTime,
+    votesForPeriod,
+    totalVotes,
+  ] = parallelReduce([0, 0, 0, 1, deployTime + FIVE_SECS, 0, 0])
     .define(() => {
-      const generateId = () => thisConsensusTime();
+      // checks
+      const chkMembership = who => check(isSome(memberships[who]), 'is member');
+      const enforceMembership = _ => {
+        // const now = getNow();
+        // const memberishipExp = fromSome(memberships[who], 0);
+        // enforce(memberishipExp > now, 'membership valid');
+        assert(true);
+      };
+      // helpers
+      const generateId = () => thisConsensusSecs();
       const getSongFromId = songId =>
-        Song.toObject(fromSome(songs[songId], defaultSong));
-      const chkMembership = who => check(members.member(who), 'is member');
-      const createOwnershipHash = (songId, user) => digest(songId, user);
-      const getOwnershipPercent = (songId, user) => {
-        const ownershipHash = createOwnershipHash(songId, user);
-        const ownershipPercent = fromSome(ownership[ownershipHash], 0);
-        return ownershipPercent;
+        Song.toObject(fromSome(songs[songId], defSongStruct));
+      const getSongPayout = (songId, vPeriod) => {
+        check(isSome(payouts[vPeriod]), 'voting period ended');
+        const totPayoutForPeriod = fromSome(payouts[vPeriod], 0);
+        const totaltotalVotesInPeriod = fromSome(
+          totalVotesInPeriod[vPeriod],
+          0
+        );
+        return muldiv(
+          totPayoutForPeriod,
+          fromSome(votes[[vPeriod, songId]], 0),
+          totaltotalVotesInPeriod
+        );
       };
-      const getSongPayout = songId => {
-        const totalSongPayout = fromSome(payouts[songId], 0);
-        return totalSongPayout;
+      const handleVote = (songId, who) => {
+        const song = getSongFromId(songId);
+        const voteKey = [votingPeriod, songId];
+        const currentVoteCount = fromSome(votes[voteKey], 0);
+        votes[voteKey] = currentVoteCount + 1;
+        userVotes[[votingPeriod, songId, who]] = true;
+        totalVotesInPeriod[votingPeriod] =
+          fromSome(totalVotesInPeriod[votingPeriod], 0) + 1;
+        songs[songId] = Song.fromObject({
+          ...song,
+          votes: song.votes + 1,
+        });
       };
-      const getPayoutForUser = (songId, user) => {
-        const songPayoutAmt = getSongPayout(songId);
-        const ownershipAmt = getOwnershipPercent(songId, user);
-        const amtForUser = muldiv(songPayoutAmt, ownershipAmt, 100);
-        return amtForUser;
-      };
-      V.songRoyalties.set(songId => fromSome(payouts[songId], 0));
-      V.userPayout.set((songId, user) => getPayoutForUser(songId, user));
-      V.userOwnership.set((songId, user) => getOwnershipPercent(songId, user));
-      V.totalPlays.set(() => totalPlays);
-      V.totalBalance.set(() => trackedBal);
-      V.reserveBalance.set(() => reserveAmt);
-      V.getSong.set(songId => fromSome(songs[songId], defaultSong));
+      // views
+      V.getSong.set(songId => {
+        check(isSome(songs[songId]), 'song exists');
+        return fromSome(songs[songId], defSongStruct);
+      });
+      V.getContractBalance.set(() => profitAmt + payoutAmt);
+      V.getCurrentVotingPeriod.set(() => votingPeriod);
+      V.getMembershipCost.set(() => membershipCost);
+      V.getPeriodEndTime.set(() => endPeriodTime);
+      V.getMembershipExp.set(who => {
+        check(isSome(memberships[who]), 'is member');
+        return fromSome(memberships[who], 0);
+      });
+      V.getSongPayout.set((songId, vPeriod) => getSongPayout(songId, vPeriod));
+      V.hasVoted.set((songId, who) =>
+        fromSome(userVotes[[votingPeriod, songId, who]], false)
+      );
     })
-    .invariant(balance() === trackedBal + reserveAmt)
-    .invariant(reserveAmt === payouts.sum())
+    .invariant(balance() === profitAmt + payoutAmt)
+    .invariant(payoutAmt === payouts.sum())
+    .invariant(totalVotes === votes.sum())
+    .invariant(totalVotes === totalVotesInPeriod.sum())
     .while(true)
-    .api_(A.addWallet, user => {
-      check(this === D, 'is deployer');
-      check(!acceptedAccounts.member(user), 'is not accepted');
-      return [
-        [0],
-        notify => {
-          acceptedAccounts.insert(user);
-          notify(null);
-          return [totalPlays, totalMembers, trackedBal, reserveAmt];
-        },
-      ];
-    })
     .api_(A.buyMembership, () => {
       check(this !== D, 'not deployer');
-      check(!members.member(this), 'is member');
+      const now = getNow();
+      const newMembExp = now + FIVE_SECS;
+      const currMembershipExp = fromSome(memberships[this], 0);
+      check(currMembershipExp < now, 'membership still valid');
       return [
-        [MEMBERSHIP_COST],
+        [membershipCost],
         notify => {
-          members.insert(this);
-          notify(null);
+          memberships[this] = newMembExp;
+          notify(newMembExp);
           return [
-            totalPlays,
             totalMembers + 1,
-            trackedBal + MEMBERSHIP_COST,
-            reserveAmt,
+            profitAmt + membershipCost,
+            payoutAmt,
+            votingPeriod,
+            endPeriodTime,
+            votesForPeriod,
+            totalVotes,
           ];
         },
       ];
@@ -146,147 +177,106 @@ export const main = Reach.App(() => {
       return [
         [0],
         notify => {
+          enforceMembership(this);
           const songId = generateId();
           songs[songId] = Song.fromObject({
+            ...defSong,
             id: generateId(),
             creator: this,
             art,
             audio,
-            totalPlays: 0,
-            sessionPlays: 0,
-            paidPlays: 0,
-            percentAvailable: 0,
           });
-          const ownershipHash = createOwnershipHash(songId, this);
-          ownership[ownershipHash] = 100;
           E.songAdded(songId);
           notify(songId);
-          return [totalPlays, totalMembers, trackedBal, reserveAmt];
-        },
-      ];
-    })
-    .api_(A.incrementPlayCount, songId => {
-      check(this !== D, 'not deployer');
-      check(acceptedAccounts.member(this), 'is allowed');
-      check(isSome(songs[songId]), 'song listed');
-      const song = getSongFromId(songId);
-      // const royaltyAmt = 1;
-      // const lastListenTime = fromSome(listens[this], 0);
-      // const reqElapsedTime = 10; // arbitrary for now
-      // enforce(now - lastListenTime >= reqElapsedTime, 'can incriment play');
-      // check for time from last listen is not too soon
-      return [
-        [0],
-        notify => {
-          const updatedSong = Song.fromObject({
-            ...song,
-            sessionPlays: song.sessionPlays + 1,
-            totalPlays: song.totalPlays + 1,
-          });
-          songs[songId] = updatedSong;
-          E.songListenedTo(songId);
-          notify(song.totalPlays + 1);
-          return [totalPlays + 1, totalMembers, trackedBal, reserveAmt];
-        },
-      ];
-    })
-    .api_(A.endPayPeriod, songId => {
-      check(this !== D, 'not deployer');
-      chkMembership(this);
-      check(isSome(songs[songId]), 'song exists');
-      const song = getSongFromId(songId);
-      check(song.creator === this, 'is song creator');
-      const unpaidPlays = song.sessionPlays - song.paidPlays;
-      const royaltyAmt = muldiv(trackedBal, unpaidPlays, totalPlays);
-      return [
-        [0],
-        notify => {
-          payouts[songId] = fromSome(payouts[songId], 0) + royaltyAmt;
-          E.royaltiesAccrued(songId, royaltyAmt);
-          notify(royaltyAmt);
           return [
-            totalPlays,
             totalMembers,
-            trackedBal - royaltyAmt,
-            reserveAmt + royaltyAmt,
+            profitAmt,
+            payoutAmt,
+            votingPeriod,
+            endPeriodTime,
+            votesForPeriod,
+            totalVotes,
           ];
         },
       ];
     })
-    .api_(A.getRoyalties, songId => {
+    .api_(A.vote, songId => {
       check(this !== D, 'not deployer');
       chkMembership(this);
-      check(isSome(songs[songId]), 'song exists');
-      const ownerHash = createOwnershipHash(songId, this);
-      check(isSome(ownership[ownerHash]), 'has ownership');
-      const amt = getPayoutForUser(songId, this);
-      check(amt > 0, 'royalties to receive');
-      check(balance() >= amt, 'bal check');
+      check(isSome(songs[songId]), 'song does not exist');
+      check(isNone(userVotes[[votingPeriod, songId, this]]), 'has voted');
       return [
         [0],
         notify => {
-          transfer(amt).to(this);
-          payouts[songId] = fromSome(payouts[songId], 0) - amt;
-          E.royaltiesPaid(songId, this, amt);
-          notify(amt);
-          return [totalPlays, totalMembers, trackedBal, reserveAmt - amt];
+          enforceMembership(this);
+          handleVote(songId, this);
+          notify(null);
+          return [
+            totalMembers,
+            profitAmt,
+            payoutAmt,
+            votingPeriod,
+            endPeriodTime,
+            votesForPeriod + 1,
+            totalVotes + 1,
+          ];
         },
       ];
     })
-    .api_(A.openToPublic, (songId, percentToOpen) => {
+    .api_(A.endVotingPeriod, () => {
       check(this !== D, 'not deployer');
       chkMembership(this);
-      check(isSome(songs[songId]), 'song exist');
-      const currentSong = getSongFromId(songId);
-      check(this === currentSong.creator, 'is creator');
-      check(percentToOpen <= 100); // cannot open more than 100%
+      // check(getNow() > endPeriodTime, 'voting period over');
+      const currPayouts = fromSome(payouts[votingPeriod], 0);
+      const amtForProfit = profitAmt / 3; // 1 third
+      const amtForAtists = profitAmt - amtForProfit; // 2 thirds
       return [
         [0],
         notify => {
-          songs[songId] = Song.fromObject({
-            ...currentSong,
-            percentAvailable: percentToOpen,
-          });
+          enforceMembership(this);
+          payouts[votingPeriod] = currPayouts + amtForAtists;
           notify(null);
-          return [totalPlays, totalMembers, trackedBal, reserveAmt];
+          return [
+            totalMembers,
+            profitAmt - amtForAtists,
+            payoutAmt + amtForAtists,
+            votingPeriod + 1,
+            endPeriodTime + FIVE_SECS,
+            0,
+            totalVotes,
+          ];
         },
       ];
     })
-    .api_(A.purchaseOwnership, (songId, desiredPercent) => {
-      check(this !== D, 'not deployer');
-
+    .api_(A.receivePayout, (songId, vPeriod) => {
+      const song = getSongFromId(songId);
+      check(this === song.creator, 'not song creator');
       chkMembership(this);
-      check(isSome(songs[songId]), 'song exist');
-      const currentSong = getSongFromId(songId);
-      const creatorOwnershipAmt = getOwnershipPercent(
-        songId,
-        currentSong.creator
-      );
-      const currentOwnedPercent = getOwnershipPercent(songId, this);
-      const deiredOwnershipAmt = desiredPercent + currentOwnedPercent;
+      check(isSome(songs[songId]), 'song does not exist');
       check(
-        deiredOwnershipAmt <= currentSong.percentAvailable,
-        'enough available'
-      ); // cannot purchase more than 100%
-      check(
-        creatorOwnershipAmt -
-          desiredPercent +
-          (desiredPercent + currentOwnedPercent) ===
-          100,
-        'percent OK'
+        isNone(payoutsReceived[[vPeriod, songId, this]]),
+        'has received payout'
       );
+      const currPayouts = fromSome(payouts[vPeriod], 0);
+      const amtForArtist = getSongPayout(songId, vPeriod);
+      check(amtForArtist <= currPayouts, 'payouts balance check');
+      check(balance() >= amtForArtist, 'enough balance');
       return [
         [0],
         notify => {
-          const ownerHash = createOwnershipHash(songId, this);
-          ownership[ownerHash] = creatorOwnershipAmt - desiredPercent;
-          ownership[ownerHash] = desiredPercent + currentOwnedPercent;
-          songs[songId] = Song.fromObject({
-            ...currentSong,
-            percentToOpen: currentSong.percentAvailable - deiredOwnershipAmt,
-          });
-          notify(null);
-          return [totalPlays, totalMembers, trackedBal, reserveAmt];
+          transfer(amtForArtist).to(this);
+          payoutsReceived[[vPeriod, songId, this]] = true;
+          payouts[vPeriod] = currPayouts - amtForArtist;
+          notify(amtForArtist);
+          return [
+            totalMembers,
+            profitAmt,
+            payoutAmt - amtForArtist,
+            votingPeriod,
+            endPeriodTime,
+            votesForPeriod,
+            totalVotes,
+          ];
         },
       ];
     });

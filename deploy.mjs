@@ -7,6 +7,12 @@ const POLYGON_TESTNET = 'https://rpc.ankr.com/polygon_mumbai';
 const stdlib = loadStdlib({
   ETH_NODE_URI: POLYGON_TESTNET,
 });
+const gasLimit = 5000000;
+
+const MATIC_DECIMALS = 18;
+
+const MEMBERSHIP_COST = 0
+const membershipCost = stdlib.parseCurrency(MEMBERSHIP_COST, MATIC_DECIMALS);
 
 const getAccFromSecret = async (
   message = 'Please paste the secret of the deployer:'
@@ -17,12 +23,14 @@ const getAccFromSecret = async (
 };
 
 const accDeployer = await getAccFromSecret();
+accDeployer.setGasLimit(gasLimit);
 
 // deploy royalty contract
 const deployRoyaltyCtc = async () => {
   const royaltyCtc = accDeployer.contract(backend);
   await stdlib.withDisconnect(() =>
     royaltyCtc.p.Deployer({
+      membershipCost,
       ready: stdlib.disconnect,
     })
   );
