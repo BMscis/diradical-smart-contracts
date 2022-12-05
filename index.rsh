@@ -2,10 +2,9 @@
 'use strict';
 
 const ONE_MONTH = 30 * 24 * 60 * 60; // in seconds
-const FIVE_SECS = 5; // in seconds
 
 // custom types - for clarity
-const IpfsCid = Bytes(46);
+const IpfsCid = Bytes(32);
 const SongId = UInt;
 const VotePeriod = UInt;
 
@@ -85,7 +84,7 @@ export const main = Reach.App(() => {
     endPeriodTime,
     votesForPeriod,
     totalVotes,
-  ] = parallelReduce([0, 0, 0, 1, deployTime + FIVE_SECS, 0, 0])
+  ] = parallelReduce([0, 0, 0, 1, deployTime + ONE_MONTH, 0, 0])
     .define(() => {
       // checks
       const chkMembership = who => check(isSome(memberships[who]), 'is member');
@@ -151,7 +150,7 @@ export const main = Reach.App(() => {
     .api_(A.buyMembership, () => {
       check(this !== D, 'not deployer');
       const now = getNow();
-      const newMembExp = now + FIVE_SECS;
+      const newMembExp = now + ONE_MONTH;
       const currMembershipExp = fromSome(memberships[this], 0);
       check(currMembershipExp < now, 'membership still valid');
       return [
@@ -241,7 +240,7 @@ export const main = Reach.App(() => {
             profitAmt - amtForAtists,
             payoutAmt + amtForAtists,
             votingPeriod + 1,
-            endPeriodTime + FIVE_SECS,
+            endPeriodTime + ONE_MONTH,
             0,
             totalVotes,
           ];
