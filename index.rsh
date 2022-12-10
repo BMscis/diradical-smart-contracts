@@ -1,7 +1,7 @@
 'reach 0.1';
 'use strict';
 
-const ONE_MONTH = 30 * 24 * 60 * 60; // in seconds
+const ONE_DAY = 1 * 24 * 60 * 60; // in seconds
 
 // custom types - for clarity
 const IpfsCid = Bytes(32);
@@ -41,6 +41,10 @@ export const main = Reach.App(() => {
   });
   const E = Events({
     songAdded: [SongId],
+    membershipPurchased: [Address, UInt],
+    voted: [Address, SongId, VotePeriod],
+    endedVotingPeriod: [VotePeriod],
+    payoutReceived: [Address, SongId, VotePeriod, UInt],
   });
 
   init();
@@ -84,15 +88,14 @@ export const main = Reach.App(() => {
     endPeriodTime,
     votesForPeriod,
     totalVotes,
-  ] = parallelReduce([0, 0, 0, 1, deployTime + ONE_MONTH, 0, 0])
+  ] = parallelReduce([0, 0, 0, 1, deployTime + ONE_DAY, 0, 0])
     .define(() => {
       // checks
       const chkMembership = who => check(isSome(memberships[who]), 'is member');
-      const enforceMembership = _ => {
-        // const now = getNow();
-        // const memberishipExp = fromSome(memberships[who], 0);
-        // enforce(memberishipExp > now, 'membership valid');
-        assert(true);
+      const enforceMembership = who => {
+        const now = getNow();
+        const memberishipExp = fromSome(memberships[who], 0);
+        enforce(memberishipExp > now, 'membership valid');
       };
       // helpers
       const generateId = () => thisConsensusSecs();
@@ -150,13 +153,14 @@ export const main = Reach.App(() => {
     .api_(A.buyMembership, () => {
       check(this !== D, 'not deployer');
       const now = getNow();
-      const newMembExp = now + ONE_MONTH;
+      const newMembExp = now + ONE_DAY;
       const currMembershipExp = fromSome(memberships[this], 0);
       check(currMembershipExp < now, 'membership still valid');
       return [
         [membershipCost],
         notify => {
           memberships[this] = newMembExp;
+          E.membershipPurchased(this, newMembExp);
           notify(newMembExp);
           return [
             totalMembers + 1,
@@ -209,6 +213,7 @@ export const main = Reach.App(() => {
         notify => {
           enforceMembership(this);
           handleVote(songId, this);
+          E.voted(this, songId, votingPeriod);
           notify(null);
           return [
             totalMembers,
@@ -225,7 +230,7 @@ export const main = Reach.App(() => {
     .api_(A.endVotingPeriod, () => {
       check(this !== D, 'not deployer');
       chkMembership(this);
-      // check(getNow() > endPeriodTime, 'voting period over');
+      check(getNow() > endPeriodTime, 'voting period over');
       const currPayouts = fromSome(payouts[votingPeriod], 0);
       const amtForProfit = profitAmt / 3; // 1 third
       const amtForAtists = profitAmt - amtForProfit; // 2 thirds
@@ -234,13 +239,14 @@ export const main = Reach.App(() => {
         notify => {
           enforceMembership(this);
           payouts[votingPeriod] = currPayouts + amtForAtists;
+          E.endedVotingPeriod(votingPeriod);
           notify(null);
           return [
             totalMembers,
             profitAmt - amtForAtists,
             payoutAmt + amtForAtists,
             votingPeriod + 1,
-            endPeriodTime + ONE_MONTH,
+            endPeriodTime + ONE_DAY,
             0,
             totalVotes,
           ];
@@ -266,6 +272,7 @@ export const main = Reach.App(() => {
           transfer(amtForArtist).to(this);
           payoutsReceived[[vPeriod, songId, this]] = true;
           payouts[vPeriod] = currPayouts - amtForArtist;
+          E.payoutReceived(this, songId, vPeriod, amtForArtist);
           notify(amtForArtist);
           return [
             totalMembers,

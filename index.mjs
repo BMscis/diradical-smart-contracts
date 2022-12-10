@@ -24,7 +24,7 @@ accArtist.setGasLimit(gasLimit);
 accListener.setGasLimit(gasLimit);
 
 const royaltyCtc = accDeployer.contract(backend);
-const IPFS_HASH = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"; // 46 chars
+const IPFS_HASH = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"; // 32 chars
 
 // deploy royalty contract
 const deployRoyaltyCtc = async () => {
