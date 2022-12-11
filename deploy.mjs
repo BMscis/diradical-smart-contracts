@@ -42,3 +42,5 @@ const royaltyCtcInfo = await deployRoyaltyCtc();
 console.log('***********************************');
 console.log('contract address:', royaltyCtcInfo);
 console.log('***********************************');
+
+process.exit(0);

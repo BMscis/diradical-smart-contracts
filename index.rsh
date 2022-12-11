@@ -2,6 +2,7 @@
 'use strict';
 
 const ONE_DAY = 1 * 24 * 60 * 60; // in seconds
+const ONE_MINUTE = 60; // in seconds
 
 // custom types - for clarity
 const IpfsCid = Bytes(32);
@@ -88,14 +89,14 @@ export const main = Reach.App(() => {
     endPeriodTime,
     votesForPeriod,
     totalVotes,
-  ] = parallelReduce([0, 0, 0, 1, deployTime + ONE_DAY, 0, 0])
+  ] = parallelReduce([0, 0, 0, 1, deployTime + ONE_MINUTE, 0, 0])
     .define(() => {
       // checks
       const chkMembership = who => check(isSome(memberships[who]), 'is member');
       const enforceMembership = who => {
         const now = getNow();
         const memberishipExp = fromSome(memberships[who], 0);
-        enforce(memberishipExp > now, 'membership valid');
+        enforce(now >= memberishipExp, 'membership valid');
       };
       // helpers
       const generateId = () => thisConsensusSecs();
@@ -153,12 +154,17 @@ export const main = Reach.App(() => {
     .api_(A.buyMembership, () => {
       check(this !== D, 'not deployer');
       const now = getNow();
-      const newMembExp = now + ONE_DAY;
-      const currMembershipExp = fromSome(memberships[this], 0);
-      check(currMembershipExp < now, 'membership still valid');
+      const currMembershipExp = memberships[this];
       return [
         [membershipCost],
         notify => {
+          switch (currMembershipExp) {
+            case None:
+              assert(true);
+            case Some:
+              enforce(now > currMembershipExp, 'membership expired');
+          }
+          const newMembExp = now + ONE_MINUTE;
           memberships[this] = newMembExp;
           E.membershipPurchased(this, newMembExp);
           notify(newMembExp);
@@ -228,16 +234,15 @@ export const main = Reach.App(() => {
       ];
     })
     .api_(A.endVotingPeriod, () => {
-      check(this !== D, 'not deployer');
-      chkMembership(this);
-      check(getNow() > endPeriodTime, 'voting period over');
+      const now = getNow();
+      const hasVotendPeriodPassed = now > endPeriodTime;
       const currPayouts = fromSome(payouts[votingPeriod], 0);
-      const amtForProfit = profitAmt / 3; // 1 third
-      const amtForAtists = profitAmt - amtForProfit; // 2 thirds
+      const amtForProfit = currPayouts === 0 ? 0 : profitAmt / 3; // 1 third
+      const amtForAtists = currPayouts === 0 ? 0 : profitAmt - amtForProfit; // 2 thirds
       return [
         [0],
         notify => {
-          enforceMembership(this);
+          enforce(hasVotendPeriodPassed, 'voting period over');
           payouts[votingPeriod] = currPayouts + amtForAtists;
           E.endedVotingPeriod(votingPeriod);
           notify(null);
@@ -246,7 +251,7 @@ export const main = Reach.App(() => {
             profitAmt - amtForAtists,
             payoutAmt + amtForAtists,
             votingPeriod + 1,
-            endPeriodTime + ONE_DAY,
+            now + ONE_MINUTE,
             0,
             totalVotes,
           ];
