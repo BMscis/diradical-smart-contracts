@@ -36,6 +36,7 @@ export const main = Reach.App(() => {
     getCurrentVotingPeriod: Fun([], VotePeriod),
     getMembershipCost: Fun([], UInt),
     getPeriodEndTime: Fun([], UInt),
+    getPeriodPayouts: Fun([VotePeriod], UInt),
     hasVoted: Fun([SongId, Address], Bool),
   });
   const E = Events({
@@ -133,6 +134,7 @@ export const main = Reach.App(() => {
         check(isSome(songs[songId]), 'song exists');
         return fromSome(songs[songId], defSongStruct);
       });
+      V.getPeriodPayouts.set(vPeriod => fromSome(payouts[vPeriod], 0));
       V.getContractBalance.set(() => profitAmt + payoutAmt);
       V.getCurrentVotingPeriod.set(() => votingPeriod);
       V.getMembershipCost.set(() => membershipCost);
@@ -237,8 +239,8 @@ export const main = Reach.App(() => {
       const now = getNow();
       const hasVotendPeriodPassed = now > endPeriodTime;
       const currPayouts = fromSome(payouts[votingPeriod], 0);
-      const amtForProfit = currPayouts === 0 ? 0 : profitAmt / 3; // 1 third
-      const amtForAtists = currPayouts === 0 ? 0 : profitAmt - amtForProfit; // 2 thirds
+      const amtForProfit = profitAmt / 3; // 1 third
+      const amtForAtists = profitAmt - amtForProfit; // 2 thirds
       return [
         [0],
         notify => {
