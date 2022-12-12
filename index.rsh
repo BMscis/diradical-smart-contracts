@@ -1,9 +1,6 @@
 'reach 0.1';
 'use strict';
 
-const ONE_DAY = 1 * 24 * 60 * 60; // in seconds
-const ONE_MINUTE = 60; // in seconds
-
 // custom types - for clarity
 const IpfsCid = Bytes(32);
 const SongId = UInt;
@@ -21,6 +18,7 @@ export const main = Reach.App(() => {
   setOptions({ connectors: [ETH] });
   const D = Participant('Deployer', {
     membershipCost: UInt,
+    periodLength: UInt,
     ready: Fun([], Null),
   });
   const A = API({
@@ -51,8 +49,9 @@ export const main = Reach.App(() => {
   init();
   D.only(() => {
     const membershipCost = declassify(interact.membershipCost);
+    const periodLength = declassify(interact.periodLength);
   });
-  D.publish(membershipCost);
+  D.publish(membershipCost, periodLength);
 
   const defSong = {
     id: 0,
@@ -89,31 +88,32 @@ export const main = Reach.App(() => {
     endPeriodTime,
     votesForPeriod,
     totalVotes,
-  ] = parallelReduce([0, 0, 0, 1, deployTime + ONE_MINUTE, 0, 0])
+  ] = parallelReduce([0, 0, 0, 1, deployTime + periodLength, 0, 0])
     .define(() => {
       // checks
       const chkMembership = who => check(isSome(memberships[who]), 'is member');
       const enforceMembership = who => {
         const now = getNow();
         const memberishipExp = fromSome(memberships[who], 0);
-        enforce(now >= memberishipExp, 'membership valid');
+        enforce(now <= memberishipExp, 'membership valid');
       };
       // helpers
       const generateId = () => thisConsensusSecs();
       const getSongFromId = songId =>
         Song.toObject(fromSome(songs[songId], defSongStruct));
       const getSongPayout = (songId, vPeriod) => {
-        check(isSome(payouts[vPeriod]), 'voting period ended');
         const totPayoutForPeriod = fromSome(payouts[vPeriod], 0);
         const totaltotalVotesInPeriod = fromSome(
           totalVotesInPeriod[vPeriod],
           0
         );
-        return muldiv(
-          totPayoutForPeriod,
-          fromSome(votes[[vPeriod, songId]], 0),
-          totaltotalVotesInPeriod
-        );
+        return totaltotalVotesInPeriod === 0
+          ? 0
+          : muldiv(
+              totPayoutForPeriod,
+              fromSome(votes[[vPeriod, songId]], 0),
+              totaltotalVotesInPeriod
+            );
       };
       const handleVote = (songId, who) => {
         const song = getSongFromId(songId);
@@ -164,7 +164,7 @@ export const main = Reach.App(() => {
             case Some:
               enforce(now > currMembershipExp, 'membership expired');
           }
-          const newMembExp = now + ONE_MINUTE;
+          const newMembExp = now + periodLength;
           memberships[this] = newMembExp;
           E.membershipPurchased(this, newMembExp);
           notify(newMembExp);
@@ -251,7 +251,7 @@ export const main = Reach.App(() => {
             profitAmt - amtForAtists,
             payoutAmt + amtForAtists,
             votingPeriod + 1,
-            now + ONE_MINUTE,
+            now + periodLength,
             0,
             totalVotes,
           ];

@@ -11,7 +11,7 @@ const gasLimit = 5000000;
 
 const MATIC_DECIMALS = 18;
 
-const MEMBERSHIP_COST = 0
+const MEMBERSHIP_COST = 0.01
 const membershipCost = stdlib.parseCurrency(MEMBERSHIP_COST, MATIC_DECIMALS);
 
 const getAccFromSecret = async (
@@ -25,11 +25,15 @@ const getAccFromSecret = async (
 const accDeployer = await getAccFromSecret();
 accDeployer.setGasLimit(gasLimit);
 
+// must be in seconds
+const PERIOD_LENGTH = 5 * 60; // 5 minutes
+
 // deploy royalty contract
 const deployRoyaltyCtc = async () => {
   const royaltyCtc = accDeployer.contract(backend);
   await stdlib.withDisconnect(() =>
     royaltyCtc.p.Deployer({
+      periodLength: PERIOD_LENGTH,
       membershipCost,
       ready: stdlib.disconnect,
     })
