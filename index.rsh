@@ -5,13 +5,14 @@
 const IpfsCid = Bytes(32);
 const SongId = UInt;
 const VotePeriod = UInt;
+const Artist = Address;
+const User = Address;
 
 const Song = Struct([
-  ['id', SongId],
-  ['creator', Address],
+  ['creator', Artist],
   ['art', IpfsCid],
   ['audio', IpfsCid],
-  ['votes', UInt],
+  ['owner', User],
 ]);
 
 export const main = Reach.App(() => {
@@ -24,27 +25,26 @@ export const main = Reach.App(() => {
   const A = API({
     buyMembership: Fun([], UInt),
     addSong: Fun([IpfsCid, IpfsCid], SongId),
-    vote: Fun([SongId], Null),
+    vote: Fun([Artist], Null),
     endVotingPeriod: Fun([], Null),
-    receivePayout: Fun([SongId, VotePeriod], UInt),
+    receivePayout: Fun([VotePeriod], UInt),
   });
   const V = View({
     getSong: Fun([SongId], Song),
-    getContractBalance: Fun([], UInt),
-    getSongPayout: Fun([SongId, VotePeriod], UInt),
+    getOwnerPayout: Fun([Artist, VotePeriod], UInt),
     getMembershipExp: Fun([Address], UInt),
     getCurrentVotingPeriod: Fun([], VotePeriod),
     getMembershipCost: Fun([], UInt),
     getPeriodEndTime: Fun([], UInt),
     getPeriodPayouts: Fun([VotePeriod], UInt),
-    hasVoted: Fun([SongId, Address], Bool),
+    hasVoted: Fun([VotePeriod, Address], Bool),
   });
   const E = Events({
     songAdded: [SongId],
     membershipPurchased: [Address, UInt],
-    voted: [Address, SongId, VotePeriod],
+    voted: [Artist, VotePeriod],
     endedVotingPeriod: [VotePeriod],
-    payoutReceived: [Address, SongId, VotePeriod, UInt],
+    payoutReceived: [Artist, VotePeriod, UInt],
   });
 
   init();
@@ -55,11 +55,10 @@ export const main = Reach.App(() => {
   D.publish(membershipCost, periodLength);
 
   const defSong = {
-    id: 0,
     creator: D,
+    owner: D,
     art: IpfsCid.pad(''),
     audio: IpfsCid.pad(''),
-    votes: 0,
   };
   const defSongStruct = Song.fromObject(defSong);
 
@@ -67,13 +66,16 @@ export const main = Reach.App(() => {
 
   const memberships = new Map(UInt);
   const songs = new Map(SongId, Song);
+  const owners = new Set();
 
-  const votes = new Map(Tuple(VotePeriod, SongId), UInt);
-  const userVotes = new Map(Tuple(VotePeriod, SongId, Address), Bool); // cannot vote twice for same song in same voting period
+  const voteResults = new Map(Tuple(VotePeriod, Artist), UInt);
+  const castedVotes = new Map(Tuple(VotePeriod, User), Bool); // cannot vote twice for same song in same voting period
   const totalVotesInPeriod = new Map(VotePeriod, UInt);
 
   const payouts = new Map(VotePeriod, UInt);
-  const payoutsReceived = new Map(Tuple(VotePeriod, SongId, Address), Bool);
+  const payoutsReceived = new Map(Tuple(VotePeriod, Artist), Bool);
+
+  const profit = new Map(VotePeriod, UInt);
 
   commit();
   D.publish();
@@ -83,13 +85,12 @@ export const main = Reach.App(() => {
 
   const [
     totalMembers,
-    profitAmt,
-    payoutAmt,
     votingPeriod,
     endPeriodTime,
     votesForPeriod,
     totalVotes,
-  ] = parallelReduce([0, 0, 0, 1, deployTime + periodLength, 0, 0])
+    songsAdded,
+  ] = parallelReduce([0, 1, deployTime + periodLength, 0, 0, 0])
     .define(() => {
       // checks
       const chkMembership = who => check(isSome(memberships[who]), 'is member');
@@ -99,10 +100,7 @@ export const main = Reach.App(() => {
         enforce(now <= memberishipExp, 'membership valid');
       };
       // helpers
-      const generateId = () => thisConsensusSecs();
-      const getSongFromId = songId =>
-        Song.toObject(fromSome(songs[songId], defSongStruct));
-      const getSongPayout = (songId, vPeriod) => {
+      const getOwnerPayout = (artist, vPeriod) => {
         const totPayoutForPeriod = fromSome(payouts[vPeriod], 0);
         const totaltotalVotesInPeriod = fromSome(
           totalVotesInPeriod[vPeriod],
@@ -112,22 +110,20 @@ export const main = Reach.App(() => {
           ? 0
           : muldiv(
               totPayoutForPeriod,
-              fromSome(votes[[vPeriod, songId]], 0),
+              fromSome(voteResults[[vPeriod, artist]], 0),
               totaltotalVotesInPeriod
             );
       };
-      const handleVote = (songId, who) => {
-        const song = getSongFromId(songId);
-        const voteKey = [votingPeriod, songId];
-        const currentVoteCount = fromSome(votes[voteKey], 0);
-        votes[voteKey] = currentVoteCount + 1;
-        userVotes[[votingPeriod, songId, who]] = true;
-        totalVotesInPeriod[votingPeriod] =
-          fromSome(totalVotesInPeriod[votingPeriod], 0) + 1;
-        songs[songId] = Song.fromObject({
-          ...song,
-          votes: song.votes + 1,
-        });
+      const handleVote = (artist, voter) => {
+        const vote = [votingPeriod, artist];
+        const currentVoteCount = fromSome(voteResults[vote], 0);
+        voteResults[vote] = currentVoteCount + 1;
+        castedVotes[[votingPeriod, voter]] = true;
+        const currentVotesInPeriod = fromSome(
+          totalVotesInPeriod[votingPeriod],
+          0
+        );
+        totalVotesInPeriod[votingPeriod] = currentVotesInPeriod + 1;
       };
       // views
       V.getSong.set(songId => {
@@ -135,7 +131,6 @@ export const main = Reach.App(() => {
         return fromSome(songs[songId], defSongStruct);
       });
       V.getPeriodPayouts.set(vPeriod => fromSome(payouts[vPeriod], 0));
-      V.getContractBalance.set(() => profitAmt + payoutAmt);
       V.getCurrentVotingPeriod.set(() => votingPeriod);
       V.getMembershipCost.set(() => membershipCost);
       V.getPeriodEndTime.set(() => endPeriodTime);
@@ -143,18 +138,23 @@ export const main = Reach.App(() => {
         check(isSome(memberships[who]), 'is member');
         return fromSome(memberships[who], 0);
       });
-      V.getSongPayout.set((songId, vPeriod) => getSongPayout(songId, vPeriod));
-      V.hasVoted.set((songId, who) =>
-        fromSome(userVotes[[votingPeriod, songId, who]], false)
+      V.getOwnerPayout.set((artist, vPeriod) =>
+        getOwnerPayout(artist, vPeriod)
+      );
+      V.hasVoted.set((vPeriod, who) =>
+        fromSome(castedVotes[[vPeriod, who]], false)
       );
     })
-    .invariant(balance() === profitAmt + payoutAmt)
-    .invariant(payoutAmt === payouts.sum())
-    .invariant(totalVotes === votes.sum())
+    .invariant(balance() === profit.sum() + payouts.sum())
+    .invariant(totalVotes === voteResults.sum())
     .invariant(totalVotes === totalVotesInPeriod.sum())
     .while(true)
     .api_(A.buyMembership, () => {
       check(this !== D, 'not deployer');
+      const currPayouts = fromSome(payouts[votingPeriod], 0);
+      const currProfit = fromSome(profit[votingPeriod], 0);
+      const amtForProfit = membershipCost / 3; // 1 third
+      const amtForAtists = membershipCost - amtForProfit; // 2 thirds
       const now = getNow();
       const currMembershipExp = memberships[this];
       return [
@@ -168,16 +168,17 @@ export const main = Reach.App(() => {
           }
           const newMembExp = now + periodLength;
           memberships[this] = newMembExp;
+          profit[votingPeriod] = currProfit + amtForProfit;
+          payouts[votingPeriod] = currPayouts + amtForAtists;
           E.membershipPurchased(this, newMembExp);
           notify(newMembExp);
           return [
             totalMembers + 1,
-            profitAmt + membershipCost,
-            payoutAmt,
             votingPeriod,
             endPeriodTime,
             votesForPeriod,
             totalVotes,
+            songsAdded,
           ];
         },
       ];
@@ -185,52 +186,55 @@ export const main = Reach.App(() => {
     .api_(A.addSong, (art, audio) => {
       check(this !== D, 'not deployer');
       chkMembership(this);
+      const creator = this;
+      const songId = songsAdded + 1;
+      check(isNone(songs[songId]), 'song id exist');
       return [
         [0],
         notify => {
-          enforceMembership(this);
-          const songId = generateId();
+          enforceMembership(creator);
           songs[songId] = Song.fromObject({
-            ...defSong,
-            id: generateId(),
-            creator: this,
+            creator: creator,
+            owner: creator,
             art,
             audio,
           });
+          if (!owners.member(creator)) {
+            owners.insert(creator);
+          }
           E.songAdded(songId);
           notify(songId);
           return [
             totalMembers,
-            profitAmt,
-            payoutAmt,
             votingPeriod,
             endPeriodTime,
             votesForPeriod,
             totalVotes,
+            songsAdded + 1,
           ];
         },
       ];
     })
-    .api_(A.vote, songId => {
-      check(this !== D, 'not deployer');
-      chkMembership(this);
-      check(isSome(songs[songId]), 'song does not exist');
-      check(isNone(userVotes[[votingPeriod, songId, this]]), 'has voted');
+    .api_(A.vote, artist => {
+      const voter = this;
+      check(voter !== D, 'not deployer');
+      chkMembership(voter);
+      check(owners.member(artist), 'is valid artist');
+      check(isNone(castedVotes[[votingPeriod, voter]]), 'has voted');
       return [
         [0],
         notify => {
-          enforceMembership(this);
-          handleVote(songId, this);
-          E.voted(this, songId, votingPeriod);
+          enforceMembership(voter);
+          handleVote(artist, voter);
+          E.voted(voter, votingPeriod);
           notify(null);
           return [
             totalMembers,
-            profitAmt,
-            payoutAmt,
             votingPeriod,
             endPeriodTime,
             votesForPeriod + 1,
             totalVotes + 1,
+            songsAdded,
           ];
         },
       ];
@@ -238,57 +242,47 @@ export const main = Reach.App(() => {
     .api_(A.endVotingPeriod, () => {
       const now = getNow();
       const hasVotendPeriodPassed = now > endPeriodTime;
-      const currPayouts = fromSome(payouts[votingPeriod], 0);
-      const amtForProfit = profitAmt / 3; // 1 third
-      const amtForAtists = profitAmt - amtForProfit; // 2 thirds
       return [
         [0],
         notify => {
           enforce(hasVotendPeriodPassed, 'voting period over');
-          payouts[votingPeriod] = currPayouts + amtForAtists;
           E.endedVotingPeriod(votingPeriod);
           notify(null);
           return [
             totalMembers,
-            profitAmt - amtForAtists,
-            payoutAmt + amtForAtists,
             votingPeriod + 1,
             now + periodLength,
             0,
             totalVotes,
+            songsAdded,
           ];
         },
       ];
     })
-    .api_(A.receivePayout, (songId, vPeriod) => {
-      const song = getSongFromId(songId);
-      check(this === song.creator, 'not song creator');
-      chkMembership(this);
-      check(isSome(songs[songId]), 'song does not exist');
-      check(
-        isNone(payoutsReceived[[vPeriod, songId, this]]),
-        'has received payout'
-      );
+    .api_(A.receivePayout, vPeriod => {
+      const owner = this;
+      chkMembership(owner);
+      check(owners.member(owner), 'is owner');
+      check(isNone(payoutsReceived[[vPeriod, owner]]), 'has received payout');
       const currPayouts = fromSome(payouts[vPeriod], 0);
-      const amtForArtist = getSongPayout(songId, vPeriod);
+      const amtForArtist = getOwnerPayout(owner, vPeriod);
       check(amtForArtist <= currPayouts, 'payouts balance check');
       check(balance() >= amtForArtist, 'enough balance');
       return [
         [0],
         notify => {
           transfer(amtForArtist).to(this);
-          payoutsReceived[[vPeriod, songId, this]] = true;
+          payoutsReceived[[vPeriod, owner]] = true;
           payouts[vPeriod] = currPayouts - amtForArtist;
-          E.payoutReceived(this, songId, vPeriod, amtForArtist);
+          E.payoutReceived(owner, vPeriod, amtForArtist);
           notify(amtForArtist);
           return [
             totalMembers,
-            profitAmt,
-            payoutAmt - amtForArtist,
             votingPeriod,
             endPeriodTime,
             votesForPeriod,
             totalVotes,
+            songsAdded,
           ];
         },
       ];

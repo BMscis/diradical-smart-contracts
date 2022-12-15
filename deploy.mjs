@@ -26,7 +26,7 @@ const accDeployer = await getAccFromSecret();
 accDeployer.setGasLimit(gasLimit);
 
 // must be in seconds
-const PERIOD_LENGTH = 2 * 60; // 5 minutes
+const PERIOD_LENGTH = 5 * 60; // 5 minutes
 
 // deploy royalty contract
 const deployRoyaltyCtc = async () => {
