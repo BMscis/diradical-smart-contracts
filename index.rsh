@@ -28,6 +28,7 @@ export const main = Reach.App(() => {
     vote: Fun([Artist], Null),
     endVotingPeriod: Fun([], Null),
     receivePayout: Fun([VotePeriod], UInt),
+    takeProfit: Fun([VotePeriod], UInt),
   });
   const V = View({
     getSong: Fun([SongId], Song),
@@ -37,6 +38,7 @@ export const main = Reach.App(() => {
     getMembershipCost: Fun([], UInt),
     getPeriodEndTime: Fun([], UInt),
     getPeriodPayouts: Fun([VotePeriod], UInt),
+    getProfitAmt: Fun([VotePeriod], UInt),
     hasVoted: Fun([VotePeriod, Address], Bool),
   });
   const E = Events({
@@ -76,6 +78,7 @@ export const main = Reach.App(() => {
   const payoutsReceived = new Map(Tuple(VotePeriod, Artist), Bool);
 
   const profit = new Map(VotePeriod, UInt);
+  const profitsReceived = new Map(VotePeriod, Bool);
 
   commit();
   D.publish();
@@ -90,7 +93,8 @@ export const main = Reach.App(() => {
     votesForPeriod,
     totalVotes,
     songsAdded,
-  ] = parallelReduce([0, 1, deployTime + periodLength, 0, 0, 0])
+    profitAmt,
+  ] = parallelReduce([0, 1, deployTime + periodLength, 0, 0, 0, 0])
     .define(() => {
       // checks
       const chkMembership = who => check(isSome(memberships[who]), 'is member');
@@ -131,6 +135,7 @@ export const main = Reach.App(() => {
         return fromSome(songs[songId], defSongStruct);
       });
       V.getPeriodPayouts.set(vPeriod => fromSome(payouts[vPeriod], 0));
+      V.getProfitAmt.set(vPeriod => fromSome(profit[vPeriod], 0));
       V.getCurrentVotingPeriod.set(() => votingPeriod);
       V.getMembershipCost.set(() => membershipCost);
       V.getPeriodEndTime.set(() => endPeriodTime);
@@ -145,6 +150,7 @@ export const main = Reach.App(() => {
         fromSome(castedVotes[[vPeriod, who]], false)
       );
     })
+    .invariant(profitAmt === profit.sum())
     .invariant(balance() === profit.sum() + payouts.sum())
     .invariant(totalVotes === voteResults.sum())
     .invariant(totalVotes === totalVotesInPeriod.sum())
@@ -179,6 +185,7 @@ export const main = Reach.App(() => {
             votesForPeriod,
             totalVotes,
             songsAdded,
+            profitAmt + amtForProfit,
           ];
         },
       ];
@@ -211,6 +218,7 @@ export const main = Reach.App(() => {
             votesForPeriod,
             totalVotes,
             songsAdded + 1,
+            profitAmt,
           ];
         },
       ];
@@ -235,6 +243,7 @@ export const main = Reach.App(() => {
             votesForPeriod + 1,
             totalVotes + 1,
             songsAdded,
+            profitAmt,
           ];
         },
       ];
@@ -255,6 +264,7 @@ export const main = Reach.App(() => {
             0,
             totalVotes,
             songsAdded,
+            profitAmt,
           ];
         },
       ];
@@ -283,6 +293,35 @@ export const main = Reach.App(() => {
             votesForPeriod,
             totalVotes,
             songsAdded,
+            profitAmt,
+          ];
+        },
+      ];
+    })
+    .api_(A.takeProfit, (vPeriod) => {
+      const deployer = this;
+      check(deployer === D, 'is deployer');
+      check(
+        isNone(profitsReceived[vPeriod]),
+        'has received payout'
+      );
+      const profitForPeriod = fromSome(profit[vPeriod], 0);
+      check(balance() >= profitForPeriod, 'enough balance');
+      return [
+        [0],
+        notify => {
+          transfer(profitForPeriod).to(deployer);
+          profitsReceived[vPeriod] = true;
+          profit[vPeriod] = 0;
+          notify(profitForPeriod);
+          return [
+            totalMembers,
+            votingPeriod,
+            endPeriodTime,
+            votesForPeriod,
+            totalVotes,
+            songsAdded,
+            profitAmt - profitForPeriod,
           ];
         },
       ];
