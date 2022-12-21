@@ -38,6 +38,8 @@ export const main = Reach.App(() => {
     getMembershipCost: Fun([], UInt),
     getPeriodEndTime: Fun([], UInt),
     getPeriodPayouts: Fun([VotePeriod], UInt),
+    getPeriodVotes: Fun([], UInt),
+    getPeriodMembers: Fun([], UInt),
     getProfitAmt: Fun([VotePeriod], UInt),
     hasVoted: Fun([VotePeriod, Address], Bool),
   });
@@ -94,7 +96,8 @@ export const main = Reach.App(() => {
     totalVotes,
     songsAdded,
     profitAmt,
-  ] = parallelReduce([0, 1, deployTime + periodLength, 0, 0, 0, 0])
+    newMembers,
+  ] = parallelReduce([0, 1, deployTime + periodLength, 0, 0, 0, 0, 0])
     .define(() => {
       // checks
       const chkMembership = who => check(isSome(memberships[who]), 'is member');
@@ -136,6 +139,8 @@ export const main = Reach.App(() => {
       });
       V.getPeriodPayouts.set(vPeriod => fromSome(payouts[vPeriod], 0));
       V.getProfitAmt.set(vPeriod => fromSome(profit[vPeriod], 0));
+      V.getPeriodVotes.set(() => votesForPeriod);
+      V.getPeriodMembers.set(() => newMembers);
       V.getCurrentVotingPeriod.set(() => votingPeriod);
       V.getMembershipCost.set(() => membershipCost);
       V.getPeriodEndTime.set(() => endPeriodTime);
@@ -163,9 +168,11 @@ export const main = Reach.App(() => {
       const amtForAtists = membershipCost - amtForProfit; // 2 thirds
       const now = getNow();
       const currMembershipExp = memberships[this];
+      const periodIsLive = endPeriodTime > now;
       return [
         [membershipCost],
         notify => {
+          enforce(periodIsLive, 'period is live');
           switch (currMembershipExp) {
             case None:
               assert(true);
@@ -186,6 +193,7 @@ export const main = Reach.App(() => {
             totalVotes,
             songsAdded,
             profitAmt + amtForProfit,
+            newMembers + 1,
           ];
         },
       ];
@@ -219,6 +227,7 @@ export const main = Reach.App(() => {
             totalVotes,
             songsAdded + 1,
             profitAmt,
+            newMembers,
           ];
         },
       ];
@@ -244,6 +253,7 @@ export const main = Reach.App(() => {
             totalVotes + 1,
             songsAdded,
             profitAmt,
+            newMembers,
           ];
         },
       ];
@@ -265,6 +275,7 @@ export const main = Reach.App(() => {
             totalVotes,
             songsAdded,
             profitAmt,
+            0,
           ];
         },
       ];
@@ -294,17 +305,15 @@ export const main = Reach.App(() => {
             totalVotes,
             songsAdded,
             profitAmt,
+            newMembers,
           ];
         },
       ];
     })
-    .api_(A.takeProfit, (vPeriod) => {
+    .api_(A.takeProfit, vPeriod => {
       const deployer = this;
       check(deployer === D, 'is deployer');
-      check(
-        isNone(profitsReceived[vPeriod]),
-        'has received payout'
-      );
+      check(isNone(profitsReceived[vPeriod]), 'has received payout');
       const profitForPeriod = fromSome(profit[vPeriod], 0);
       check(balance() >= profitForPeriod, 'enough balance');
       return [
@@ -322,6 +331,7 @@ export const main = Reach.App(() => {
             totalVotes,
             songsAdded,
             profitAmt - profitForPeriod,
+            newMembers,
           ];
         },
       ];
